@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>发票AI测试阶段收敛复盘</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;800&family=IBM+Plex+Sans:wght@400;600;700&display=swap');
+
+    :root {
+      --bg: #08131f;
+      --bg-2: #102334;
+      --panel: rgba(11, 24, 38, 0.82);
+      --panel-strong: rgba(15, 34, 53, 0.92);
+      --line: rgba(144, 212, 255, 0.18);
+      --text: #f4f8fb;
+      --muted: #9eb2c4;
+      --blue: #63d2ff;
+      --cyan: #36f0c5;
+      --amber: #ffbf69;
+      --red: #ff7d7d;
+      --green: #6fefad;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: radial-gradient(circle at top left, #163c59 0, transparent 35%), radial-gradient(circle at bottom right, #442641 0, transparent 30%), linear-gradient(135deg, var(--bg) 0%, #0d1826 45%, #071018 100%); color: var(--text); font-family: 'Noto Sans SC', 'IBM Plex Sans', sans-serif; }
+    body { overflow: hidden; }
+
+    .deck {
+      position: relative;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      padding: 56px 64px 72px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      opacity: 0;
+      transform: translateX(32px) scale(0.98);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+      pointer-events: none;
+      background:
+        linear-gradient(160deg, rgba(11, 24, 38, 0.9), rgba(7, 16, 24, 0.82)),
+        radial-gradient(circle at top right, rgba(99, 210, 255, 0.16), transparent 26%),
+        radial-gradient(circle at bottom left, rgba(54, 240, 197, 0.12), transparent 24%);
+    }
+
+    .slide.active {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+      pointer-events: auto;
+    }
+
+    .topbar, .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--blue);
+      font-size: 15px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-family: 'IBM Plex Sans', sans-serif;
+    }
+
+    .eyebrow::before {
+      content: '';
+      width: 38px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--blue));
+    }
+
+    .page {
+      color: var(--muted);
+      font-size: 15px;
+      font-family: 'IBM Plex Sans', sans-serif;
+    }
+
+    .content {
+      display: grid;
+      align-content: center;
+      gap: 24px;
+      min-height: 0;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 54px; line-height: 1.05; letter-spacing: -0.03em; max-width: 1100px; }
+    h2 { font-size: 40px; line-height: 1.12; letter-spacing: -0.03em; max-width: 1100px; }
+    h3 { font-size: 22px; line-height: 1.3; }
+    p.lead { max-width: 980px; color: var(--muted); font-size: 22px; line-height: 1.65; }
+    .sublead { color: var(--muted); font-size: 18px; line-height: 1.7; max-width: 980px; }
+
+    .grid-2, .grid-3, .grid-4 {
+      display: grid;
+      gap: 18px;
+    }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .card {
+      background: linear-gradient(180deg, rgba(18, 36, 55, 0.94), rgba(10, 22, 34, 0.88));
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 22px 24px;
+      min-height: 0;
+    }
+
+    .metric {
+      display: grid;
+      gap: 10px;
+    }
+
+    .metric .value {
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .metric .label, .card p, .card li, .footnote, .table td, .table th {
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    .accent-blue { color: var(--blue); }
+    .accent-amber { color: var(--amber); }
+    .accent-red { color: var(--red); }
+    .accent-green { color: var(--green); }
+
+    ul.clean {
+      margin: 0;
+      padding-left: 1.2em;
+      display: grid;
+      gap: 10px;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .pill {
+      padding: 7px 14px;
+      border-radius: 999px;
+      background: rgba(99, 210, 255, 0.1);
+      border: 1px solid rgba(99, 210, 255, 0.24);
+      color: #d9f4ff;
+      font-size: 14px;
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .timeline .node {
+      position: relative;
+      padding: 16px 18px 18px;
+      border-radius: 20px;
+      background: rgba(14, 30, 46, 0.86);
+      border: 1px solid var(--line);
+    }
+
+    .timeline .node::before {
+      content: '';
+      position: absolute;
+      left: 18px;
+      top: -8px;
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: var(--amber);
+      box-shadow: 0 0 0 6px rgba(255, 191, 105, 0.12);
+    }
+
+    .timeline .date {
+      font-size: 13px;
+      color: var(--amber);
+      font-family: 'IBM Plex Sans', sans-serif;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 18px;
+      background: rgba(9, 20, 31, 0.72);
+    }
+
+    .table th, .table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(144, 212, 255, 0.12);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .table th {
+      color: #dbf4ff;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: rgba(20, 42, 63, 0.8);
+    }
+
+    .bar-list {
+      display: grid;
+      gap: 14px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 180px 1fr 64px;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .bar {
+      position: relative;
+      height: 14px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .bar > span {
+      position: absolute;
+      inset: 0 auto 0 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--blue), var(--cyan));
+    }
+
+    .bar-row.danger .bar > span {
+      background: linear-gradient(90deg, #ff7d7d, #ffbf69);
+    }
+
+    .split-note {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 18px;
+    }
+
+    .quote {
+      padding: 20px 22px;
+      border-left: 3px solid var(--amber);
+      background: rgba(255, 191, 105, 0.08);
+      color: #ffe8bf;
+      border-radius: 0 20px 20px 0;
+      font-size: 18px;
+      line-height: 1.75;
+    }
+
+    .solution-box {
+      padding: 18px 22px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, rgba(54, 240, 197, 0.16), rgba(99, 210, 255, 0.12));
+      border: 1px solid rgba(111, 239, 173, 0.28);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+      display: grid;
+      gap: 8px;
+    }
+
+    .solution-box .tag {
+      color: var(--green);
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-weight: 700;
+    }
+
+    .solution-box .text {
+      color: #effff8;
+      font-size: 22px;
+      line-height: 1.6;
+      font-weight: 700;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .flow-card {
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: rgba(18, 36, 55, 0.94);
+      border: 1px solid var(--line);
+    }
+
+    .flow-card strong {
+      display: block;
+      color: var(--blue);
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .flow-card {
+      padding: 18px 18px 20px;
+      border-radius: 20px;
+      background: rgba(17, 34, 50, 0.88);
+      border: 1px solid rgba(144, 212, 255, 0.18);
+      box-shadow: var(--shadow);
+    }
+
+    .flow-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #eefaff;
+      font-size: 18px;
+    }
+
+    .flow-card p {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    .footer {
+      padding-top: 12px;
+      border-top: 1px solid rgba(144, 212, 255, 0.12);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .progress {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, var(--blue), var(--cyan), var(--amber));
+      transition: width 0.35s ease;
+    }
+
+    .navhint {
+      opacity: 0.75;
+    }
+
+    .danger-panel {
+      background: linear-gradient(180deg, rgba(51, 18, 20, 0.9), rgba(31, 10, 12, 0.82));
+      border-color: rgba(255, 125, 125, 0.22);
+    }
+
+    @media (max-width: 1100px) {
+      body { overflow: auto; }
+      .deck { height: auto; }
+      .slide {
+        position: relative;
+        min-height: 100vh;
+        opacity: 1;
+        transform: none;
+        pointer-events: auto;
+      }
+      .slide:not(.active) { display: none; }
+      .grid-2, .grid-3, .grid-4, .timeline, .split-note, .flow-grid { grid-template-columns: 1fr; }
+      .bar-row { grid-template-columns: 1fr; }
+      h1 { font-size: 40px; }
+      h2 { font-size: 30px; }
+      p.lead { font-size: 19px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck">
+    <section class="slide active">
+      <div class="topbar">
+        <div class="eyebrow">1.0.3 上线后技术复盘</div>
+        <div class="page">01 / 17</div>
+      </div>
+      <div class="content">
+        <h1>发票AI测试阶段反复返工复盘</h1>
+        <p class="lead">这次复盘不讨论“AI 好不好用”，而是定位为什么在测试阶段同类问题会反复修改、迟迟不能收敛，并给出一套能真正落地的技术治理方案：真实数据约束、字段契约约束、回归门禁约束、会话交接约束、越权改动约束。</p>
+        <div class="pill-row">
+          <span class="pill">项目：lkl-zf-bs-lams-invoice-ai</span>
+          <span class="pill">版本：1.0.3 已上线</span>
+          <span class="pill">复盘范围：测试阶段至上线前后</span>
+          <span class="pill">目标：给出可执行收敛方案</span>
+        </div>
+      </div>
+      <div class="footer">
+        <span>版本 1.0.3 上线后复盘材料</span>
+        <span class="navhint">键盘 ← / → 切换</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">现象总览</div>
+        <div class="page">02 / 17</div>
+      </div>
+      <div class="content">
+        <h2>先看事实：上线前后不是零散 Bug，而是“同链路高频返工”</h2>
+        <div class="grid-4">
+          <div class="card metric"><div class="label">4/11 - 4/29 相关任务</div><div class="value accent-blue">85</div><p>来自 blackboard 任务统计，已进入高频修补区。</p></div>
+          <div class="card metric"><div class="label">红冲 / 换开类</div><div class="value accent-amber">37</div><p>同一主链路反复修，最难收敛。</p></div>
+          <div class="card metric"><div class="label">下载链路类</div><div class="value accent-red">12</div><p>说明不是单点代码错，而是端到端链路理解不完整。</p></div>
+          <div class="card metric"><div class="label">4/11 单日任务</div><div class="value accent-green">17</div><p>第一次集中爆发；4/14 还有 13 个，4/16 还有 10 个。</p></div>
+        </div>
+        <div class="timeline">
+          <div class="node"><div class="date">04-01</div><strong>90.6% 接口覆盖</strong><p>96 个接口已测 87 个，但仍有 9 个系统异常，说明“覆盖率高”不代表“风险小”。</p></div>
+          <div class="node"><div class="date">04-11</div><strong>问题密集爆发</strong><p>红冲、换开、开票员、参数映射等集中返工。</p></div>
+          <div class="node"><div class="date">04-13</div><strong>回归缺口暴露</strong><p>近 40 个修复任务中，仅 5 个有专门回归测试，87.5% 无测试。</p></div>
+          <div class="node"><div class="date">04-21</div><strong>治理评估给出结论</strong><p>改进项闭环率 0%，明确指出缺少正式复盘输出。</p></div>
+          <div class="node"><div class="date">04-29</div><strong>仍在补链路</strong><p>模拟数据标识、换开缺字段、状态同步等仍在持续修补。</p></div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">优先整改</div>
+          <div class="text">先不要按零散问题修补，而是按“红冲 / 换开 / 下载 / 开票员”四条主链路建立专项回归矩阵，每次修改必须声明自己影响哪条链路、回归哪条链路。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>数据来源：`blackboard/index.json`、`docs/test-report/上线评估报告_20260401.md`、`docs/plans/2026-04-21-engineering-governance-assessment.md`</span>
+        <span>问题不是晚发现，而是缺少让问题“停住”的机制</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">收敛缺口</div>
+        <div class="page">03 / 17</div>
+      </div>
+      <div class="content">
+        <h2>为什么看起来“测试做了很多”，结果还是不收敛</h2>
+        <div class="split-note">
+          <div class="card">
+            <div class="bar-list">
+              <div class="bar-row"><strong>接口覆盖率</strong><div class="bar"><span style="width: 90.6%"></span></div><strong>90.6%</strong></div>
+              <div class="bar-row danger"><strong>近期修复有专门回归</strong><div class="bar"><span style="width: 12.5%"></span></div><strong>12.5%</strong></div>
+              <div class="bar-row"><strong>后补测试后的回归覆盖</strong><div class="bar"><span style="width: 85%"></span></div><strong>85%</strong></div>
+            </div>
+            <p style="margin-top:18px;">关键问题不在于“有没有测试”，而在于 <span class="accent-amber">测试加入得太晚</span>，且未成为提交前阻断条件。4/13 的补测报告虽然新增了 <strong>4 个 P0 测试文件、42 个测试方法</strong>，但同一份报告也明确写了：<span class="accent-red">测试文件还需要根据实际接口定义调整</span>。</p>
+          </div>
+          <div class="card danger-panel">
+            <h3>真正的断点在这里</h3>
+            <ul class="clean">
+              <li>前期更多是“接口能跑通”验证，不是“关键链路不会回退”验证。</li>
+              <li>AI 修一处时，没有被强制要求证明“相关旧问题仍然成立”。</li>
+              <li>模拟数据与真实直连报文差异大，单元测试通过仍可能把实际参数带偏。</li>
+              <li>会话结束后，后续 AI 只看当前问题，不看历史修复约束，容易顺手删掉旧逻辑。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">优先整改</div>
+          <div class="text">把“测试通过才能结束”改成硬门禁：每个修复任务自动绑定必跑用例、必查接口和必看日志，没有回归证据就不能算修完。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>数据来源：`docs/test-report/测试覆盖分析报告-20260413.md`、`docs/test-report/测试补充完成报告-20260413.md`</span>
+        <span>关键词：覆盖率 ≠ 收敛率</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">案例一</div>
+        <div class="page">04 / 17</div>
+      </div>
+      <div class="content">
+        <h2>案例一：开票员 ID 被错误示例“污染”，单元测试过了，联调还是错</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>真实问题</h3>
+            <ul class="clean">
+              <li>微信开票报错：`DCP11000 - billing_person_id 不能为空`。</li>
+              <li>代码曾使用默认值 `2018863679881113602`，但该值属于 <span class="accent-red">其他商户</span> 的开票员 ID。</li>
+              <li>后续又出现“开票员为空”“drawer_id 丢失”“换开新蓝票缺 `drawer_id`”等连锁问题。</li>
+            </ul>
+            <div class="quote" style="margin-top:16px;">正确做法最终被明确为：<br>1. 先查本地 `t_invoice_clerk`<br>2. 再查微信接口返回 `billingPersonInfo`<br>3. 仍拿不到就报错，不能拿别家商户的默认值顶上。</div>
+          </div>
+          <div class="card">
+            <table class="table">
+              <thead><tr><th>证据</th><th>内容</th></tr></thead>
+              <tbody>
+                <tr><td>错误默认值</td><td>`fix-wechat-billing-person-id-20260415` 明确记录：`2018863679881113602` 不能乱用。</td></tr>
+                <tr><td>后续修复</td><td>`fix-invoice-operator-empty-20260417` 修了支付宝同步缺 `accMerchantNo`、SQL 缺 `is_default`、默认开票员失效。</td></tr>
+                <tr><td>链路扩散</td><td>`fix-replace-invoice-missing-fields-20260429` 里新蓝票 `drawer_id` 仍出现 null。</td></tr>
+              </tbody>
+            </table>
+            <p style="margin-top:16px;">这类问题说明：<span class="accent-amber">“拿一个能成功的示例报文喂 AI”并不等于“字段语义已经被约束住”</span>。如果不标明“这个值是商户级唯一、不可跨商户复用”，AI 会把它当可复用模板。</p>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">优先整改</div>
+          <div class="text">对开票员、商户号、票种这类关键字段建立“来源白名单 + 唯一性校验 + 跨商户禁止复用”规则，禁止把成功样例中的值直接当默认值。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>数据来源：`blackboard/entities/fix-wechat-billing-person-id-20260415/overview.md`、`blackboard/entities/fix-invoice-operator-empty-20260417/overview.md`</span>
+        <span>问题主题：开票员字段污染与缺失</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">案例二</div>
+        <div class="page">05 / 17</div>
+      </div>
+      <div class="content">
+        <h2>案例二：模拟数据与写死值把“能跑通”伪装成“已实现”</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>代码里真实出现过的写死值</h3>
+            <ul class="clean">
+              <li>`GENERAL`、`INDIVIDUAL`、`COMM_FAPIAO`</li>
+              <li>商品名固定成“服务费”</li>
+              <li>税收分类编码固定成 `3040502000000000000`</li>
+              <li>税率固定成 `0`</li>
+            </ul>
+            <p style="margin-top:16px;">这些值都在 `fix-retry-invoice-hardcoded-values-20260414` 中被点名修复，根因是 <span class="accent-red">重试和换开没有从 `t_invoice_item` 读取真实明细</span>。</p>
+          </div>
+          <div class="card">
+            <h3>这类问题为什么难收敛</h3>
+            <ul class="clean">
+              <li>单元测试使用的是模拟 DTO，字段齐全且值固定，容易误判为“逻辑没问题”。</li>
+              <li>一旦进入真实场景，产品类型、票种、税率、油枪号、站点名称都变成动态字段。</li>
+              <li>4/29 还专门补了一次模拟数据标识回归，新增 `MOCK_` / `MOCK_R` 规则，说明模拟数据与真实数据混淆已经产生管理成本。</li>
+            </ul>
+            <div class="quote" style="margin-top:16px;">不是 AI 不会写判断逻辑，而是它没有被强制要求：<br>“凡是接口参数来自业务数据，就必须能追溯到数据库、日志或接口返回的唯一来源。”</div>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">优先整改</div>
+          <div class="text">模拟数据必须带来源标签，关键参数必须能追溯到数据库、日志或上游返回；没有来源链的字段，一律不允许进入正式修复代码。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>数据来源：`blackboard/entities/fix-retry-invoice-hardcoded-values-20260414/overview.md`、`docs/test-report/Mock数据标识回归验证报告_20260429.md`</span>
+        <span>问题主题：模拟数据污染与写死值</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">案例三</div>
+        <div class="page">06 / 17</div>
+      </div>
+      <div class="content">
+        <h2>案例三：需求没写清“单价/数量/税额口径”，AI 会自动按惯例补完，但不一定对</h2>
+        <div class="grid-3">
+          <div class="card metric">
+            <div class="label">错误数据库数量</div>
+            <div class="value accent-red">5.0 升</div>
+            <p>发票号 `26627200000001818052` 的错误结果。</p>
+          </div>
+          <div class="card metric">
+            <div class="label">下载展示数量</div>
+            <div class="value accent-amber">4.424779 升</div>
+            <p>另一套错误口径，说明前后链路不一致。</p>
+          </div>
+          <div class="card metric">
+            <div class="label">测试期望数量</div>
+            <div class="value accent-green">4.35 升</div>
+            <p>最终按价外税口径修正后的正确值。</p>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>问题演进</h3>
+            <ul class="clean">
+              <li>`verify-quantity-calculation-20260414` 首次发现：微信 / 支付宝开票 `itemNum` 直接写死为 1。</li>
+              <li>`fix-wechat-alipay-invoice-issues-20260424` 又修：微信数量固定为 1、支付宝红冲精度不一致。</li>
+              <li>`fix-quantity-calculation-inconsistency-20260428` 最终明确：商品表 `price` 应定义为 <strong>不含税单价</strong>，并统一按价外税计算。</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>这个案例说明什么</h3>
+            <ul class="clean">
+              <li>需求文档没给公式，AI 会按“常见电商算法”自动补完。</li>
+              <li>如果产品、测试、研发没有对“字段定义 + 计算公式 + rounding 规则”形成同一份表，改一次只会把错误从 A 口径切到 B 口径。</li>
+              <li>这类错误单靠模拟数据很难发现，必须用真实报文、数据库结果、下载文件三方对账。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">优先整改</div>
+          <div class="text">把单价、数量、税额、含税金额做成统一的“字段定义卡 + 计算公式卡 + rounding 规则卡 + 样例卡”，微信和支付宝各维护一套，不允许再靠经验猜。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>数据来源：`blackboard/entities/verify-quantity-calculation-20260414/overview.md`、`blackboard/entities/fix-quantity-calculation-inconsistency-20260428/overview.md`</span>
+        <span>问题主题：字段口径和计算公式不一致</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">案例四</div>
+        <div class="page">07 / 17</div>
+      </div>
+      <div class="content">
+        <h2>案例四：会话切换后，历史修复约束丢失，导致旧问题被顺手删回去</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>重复修同类问题的证据</h3>
+            <table class="table">
+              <thead><tr><th>日期</th><th>任务</th><th>现象</th></tr></thead>
+              <tbody>
+                <tr><td>04-11</td><td>`fix-one-click-replace-itemname-round2`</td><td>同一类商品名称不一致进入第二轮修复。</td></tr>
+                <tr><td>04-16</td><td>`fix-replace-red-invoice-missing`</td><td>换开红票记录缺失、`fail_reason` 为空。</td></tr>
+                <tr><td>04-17</td><td>`fix-replace-red-invoice-issues`</td><td>换开红冲相关问题再次补修。</td></tr>
+                <tr><td>04-28</td><td>`fix-alipay-replace-items-wrong`</td><td>换开蓝票报文缺大量字段，发现下划线/驼峰映射坑。</td></tr>
+                <tr><td>04-29</td><td>`fix-replace-invoice-missing-fields`</td><td>新蓝票仍缺 `drawer_id`、`oil_gun_no`、`station_name`。</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>根因不是“人记性差”，而是“变更约束没有随会话传递”</h3>
+            <ul class="clean">
+              <li>AI 只对当前提示负责，缺少“这些字段之前为什么必须保留”的决策日志。</li>
+              <li>例如支付宝换开报文缺字段，最后定位到：日志落库时做了 `camelToUnderscore`，恢复时没做 `underscoreToCamel`，字段大量映射失败。</li>
+              <li>如果没有交接包，后续会话很容易只看表面字段 null，然后用更大的补丁覆盖掉原本正确的补偿逻辑。</li>
+            </ul>
+            <div class="quote" style="margin-top:16px;">对 AI 来说，会话关闭就像换了一个新同事；如果没有交接记录和决策记录，它不会天然继承“哪些逻辑绝对不能删”。</div>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">优先整改</div>
+          <div class="text">每次修复必须同步产出交接卡：改动原因、不能删的逻辑、已知坑、必回归链路；下一次会话必须先读取交接卡再动代码。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>数据来源：多个 `replace` 相关 blackboard 实体，尤其 `fix-alipay-replace-items-wrong-20260428`、`fix-replace-invoice-missing-fields-20260429`</span>
+        <span>问题主题：历史修复约束未随会话传递</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">案例五</div>
+        <div class="page">08 / 17</div>
+      </div>
+      <div class="content">
+        <h2>案例五：安全修复没有“受保护边界”，结果从“去掉鉴权”走成了“删除接口”</h2>
+        <div class="split-note">
+          <div class="card danger-panel">
+            <h3>这次事故的本质</h3>
+            <ul class="clean">
+              <li>业务诉求是：<strong>发票申请、红冲接口在当前内部直连联调阶段临时去掉鉴权</strong>。</li>
+              <li>AI 最终执行成：<strong>直接删除两个接口 controller</strong>。</li>
+              <li>后续新会话再补接口时，逻辑与原实现已经不一致，最后只能回看历史提交恢复。</li>
+            </ul>
+            <p style="margin-top:16px;">这不是单纯“AI 理解错一句话”，而是缺了 <span class="accent-red">架构边界保护</span>：controller 属于外部契约层，本应列入“禁止删除名单”。</p>
+          </div>
+          <div class="card">
+            <h3>为什么这一类事故特别贵</h3>
+            <ul class="clean">
+              <li>删 controller 不是改逻辑，是改对外契约；破坏范围比“去掉一个校验注解”大很多。</li>
+              <li>测试如果只覆盖正常路径，未做接口清单比对，就不会第一时间发现接口直接消失。</li>
+              <li>恢复成本依赖历史提交，而不是当前上下文；这说明变更前没有生成“允许改动清单 / 禁止改动清单”。</li>
+            </ul>
+            <p style="margin-top:16px;">项目 4/13 做过安全审查，说明“安全动作很多”；但如果安全修复与业务豁免没有一套审批模板，就会在最后一公里放大风险。</p>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">优先整改</div>
+          <div class="text">建立重点保护项清单：controller、对外 DTO、Mapper SQL、回调签名逻辑默认禁止删除；涉及安全豁免时，只允许“降级”不允许“移除”。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>案例来源：管理侧实际经历 + 项目安全整改背景 `blackboard/entities/security-review-20260413/overview.md`</span>
+        <span>问题主题：安全修复越权修改外部契约</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">技术难点</div>
+        <div class="page">09 / 17</div>
+      </div>
+      <div class="content">
+        <h2>这个项目本身就存在 3 个高难度约束，决定了问题天然不容易一次收敛</h2>
+        <div class="grid-3">
+          <div class="card danger-panel">
+            <h3>难点一：没有支付宝 / 微信测试环境</h3>
+            <ul class="clean">
+              <li>只能在生产环境做真实开票、真实红冲验证。</li>
+              <li>给到的真实商户不允许大量反复开票、红冲，否则税局会关注异常行为。</li>
+              <li>这意味着很多问题无法靠“多跑几次”定位，只能靠有限真实样本一次次逼近。</li>
+            </ul>
+          </div>
+          <div class="card danger-panel">
+            <h3>难点二：改一个点后，无法完整重走一遍全流程</h3>
+            <ul class="clean">
+              <li>每次真实验证成本高，且有商户与税务风险。</li>
+              <li>如果退回用模拟方式验证，又会遗漏真正调用时才出现的未知错误。</li>
+              <li>所以这个项目对“局部修复 + 全链路回归”天然矛盾，必须靠证据链和链路切片补足。</li>
+            </ul>
+          </div>
+          <div class="card danger-panel">
+            <h3>难点三：直连平台文档只写必填，不写组合规则</h3>
+            <ul class="clean">
+              <li>接口文档通常只标注必填 / 非必填，没有详细说明字段之间如何组合。</li>
+              <li>商品单价、数量、含税金额、税额之间还有小数进位与口径问题。</li>
+              <li>微信和支付宝的字段、单位、计算方式也不一致，例如微信无法直接传单价。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>典型技术矛盾</h3>
+            <ul class="clean">
+              <li>微信无法传单价，只能由平台侧或票面侧自行计算，容易造成“页面展示单价”和“开票结果单价”不一致。</li>
+              <li>支付宝有更强的校验规则，红冲时会校验：<strong>单价 × 数量 - 金额（不含税）|必须小于等于 0.01</strong>。</li>
+              <li>如果蓝票开票时数量除不尽，四舍五入多进了一位，红冲时就可能直接失败。</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>真实验收样例</h3>
+            <ul class="clean">
+              <li>商品配置单价：9 元</li>
+              <li>扫码金额：0.05 元，先发起开票，再发起红冲</li>
+              <li>这个样例可以通过，因为红票成功后会把原蓝票更新为“已红冲”，并记录红字发票 ID。</li>
+              <li>但测试里如果改成 0.1 元反复验证，就发现送给通道的 `tax_amount` 经常为 0。</li>
+              <li>生产上以前是“不传 tax_amount，让通道自己算”；但通道自己算又可能出现错位、进位误差，最终把问题推到红冲阶段爆出来。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">优先整改</div>
+          <div class="text">针对生产验证受限的现实，必须补三套替代手段：最小真实样本集、直连请求日志回放、字段级验算脚本；否则很多错误只能等到真实红冲时才暴露。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>这 3 个难点决定了：这个项目不能只靠“多测几次”收敛，必须把字段口径、真实样本和回归证据做成硬约束</span>
+        <span>否则问题会被延迟到真实开票或真实红冲时才暴露</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">根因归纳</div>
+        <div class="page">10 / 17</div>
+      </div>
+      <div class="content">
+        <h2>这次问题失控，不只是测试没兜住，而是项目从一开始就没有把“外部依赖型应用”的地基打稳</h2>
+        <table class="table">
+          <thead>
+            <tr><th>根因</th><th>这次具体表现</th><th>为什么会越修越远</th><th>必须补的动作</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>需求过粗</td><td>先喊“纯 AI 开发”，但需求、公式、验收口径都不细。</td><td>后面修正时既需要大改，又因为联调风险不敢大改，只能小修小补。</td><td>先把需求打回为字段级约束和验收用例，再允许进入实现。</td></tr>
+            <tr><td>设计投入不足</td><td>人没有在设计阶段把外部接口、字段组合、状态收敛逻辑讲清楚。</td><td>AI 只能按惯例补逻辑，导致实现和实际渠道规则偏离。</td><td>人在设计阶段必须补齐契约、状态机、公式卡。</td></tr>
+            <tr><td>应用无法自闭环</td><td>本质上强依赖微信 / 支付宝 / 直连平台返回，是“伪中台”。</td><td>内部代码改对了，不代表外部接口就认；很多错误只能在真实返回里暴露。</td><td>把“外部依赖闭环”当成一等公民来建设。</td></tr>
+            <tr><td>自测偏成功路径</td><td>之前的 mock 基本只返回成功。</td><td>改动字段后真正会触发的异常，在自测阶段根本没覆盖到。</td><td>mock 必须由真实失败日志反向驱动，而不是只做 happy path。</td></tr>
+            <tr><td>品控发现问题过晚</td><td>自测给出“可提测”，实际测试却出现大量问题。</td><td>两边验证口径不同：自测验证“能通”，品控验证“能稳定、能回归、能解释”。</td><td>统一 Definition of Done，统一提测前证据要求。</td></tr>
+          </tbody>
+        </table>
+        <div class="solution-box">
+          <div class="tag">核心判断</div>
+          <div class="text">这个项目不是普通 CRUD 应用，而是强外部依赖、强字段契约、弱本地闭环的高风险应用。后续所有方案都必须围绕“补闭环、补契约、补失败验证”来设计。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>核心根因：需求太粗、设计投入不足、外部依赖无法闭环、成功路径偏置、自测与品控口径不一致</span>
+        <span>这 5 条不解决，后面任何修补都会继续回潮</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">短期方案</div>
+        <div class="page">11 / 17</div>
+      </div>
+      <div class="content">
+        <h2>短期收敛方案：先利用现有 `t_direct_platform_log` 和已下载日志，把失败场景补出来</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>短期执行表</h3>
+            <table class="table">
+              <thead><tr><th>项</th><th>内容</th></tr></thead>
+              <tbody>
+                <tr><td>周期</td><td>1 - 2 周，目标是止血</td></tr>
+                <tr><td>负责人</td><td>研发负责人牵头；产品补文档；测试整理失败样本；AI 负责 mock 强化和回放脚本补齐</td></tr>
+                <tr><td>现有资料</td><td>已下载测试调用日志、`t_direct_platform_log`、现有接口文档、现有失败 Bug 清单</td></tr>
+                <tr><td>产出结果</td><td>失败样本库、异常 mock、不同返回结果的 mock 测试集、字段组合说明补充版文档、四条主链路异常回放清单、统一提测标准</td></tr>
+                <tr><td>关键动作</td><td>按接口分类整理成功 / 失败 / 边界样例；用真实请求与响应反向增强 mock；补完字段组合规则与错误码触发条件；补齐各种不同返回结果的 mock 测试；提测前强制出四类证据</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>短期验收标准</h3>
+            <ul class="clean">
+              <li>mock 不再是“全成功返回”，而是能复现大部分已知异常场景。</li>
+              <li>关键接口文档补上“如何组合传参”，不再只有必填/非必填。</li>
+              <li>提测前每条主链路都能拿出成功、失败、边界三类回放结果。</li>
+              <li>第二轮修复数量两周内下降 50%。</li>
+            </ul>
+            <div class="quote" style="margin-top:16px;">短期方案的关键不是“继续测更多”，而是让 mock 和文档真正开始反映真实失败世界。</div>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">短期重点</div>
+          <div class="text">先把真实失败样本喂回 mock 和文档，让项目至少在内部能复现“为什么会失败”，而不是永远到品控阶段才第一次看见异常。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>落地抓手：测试环境调用日志、`t_direct_platform_log`、人工补全文档、异常回放清单</span>
+        <span>目标：把成功路径自测改造成“成功 + 失败 + 边界”三类自测</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">中期方案</div>
+        <div class="page">12 / 17</div>
+      </div>
+      <div class="content">
+        <h2>中期收敛方案：下次迭代别再拿着粗需求直接开写，先把该问清的都问清</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>中期执行表</h3>
+            <table class="table">
+              <thead><tr><th>项</th><th>内容</th></tr></thead>
+              <tbody>
+                <tr><td>周期</td><td>1 - 2 个月，目标是把“先澄清再开发”固定下来</td></tr>
+                <tr><td>负责人</td><td>产品负责人、研发负责人共同负责；测试按设计文档和样本补测试用例；AI 只在确认后的范围内执行</td></tr>
+                <tr><td>现有资料</td><td>上一阶段沉淀下来的失败案例、补充后的接口文档、当前需求文档、历史问题记录</td></tr>
+                <tr><td>产出结果</td><td>需求拆解单、开发前确认清单、高风险字段表、重点保护项清单、AI 待确认问题单</td></tr>
+                <tr><td>关键动作</td><td>先拆需求再开发；开发前确认字段定义、公式、渠道差异、失败样本；AI 不清楚时必须停下来列问题；AI 交付后人工逐项核对入参、落库、状态、失败分支、重点保护项</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>中期产出到底是什么</h3>
+            <ul class="clean">
+              <li><strong>需求拆解单：</strong>把一段需求拆成字段定义、前置条件、公式、渠道差异、验收方式，通常由产品和研发一起整理，最终形成一页能直接指导开发的说明单。</li>
+              <li><strong>开发前确认清单：</strong>列出开写前必须确认的点，比如金额公式、税额规则、红冲前置条件、失败样本是否具备；每一项都要写清“谁确认、依据是什么、还缺什么”。</li>
+              <li><strong>高风险字段表：</strong>从请求参数、响应参数、数据库字段、状态字段里筛出高风险字段；每个字段都要写清字段名、业务含义、谁提供、传到哪、错了会导致什么问题、应该看哪份文档或日志确认。</li>
+              <li><strong>重点保护项清单：</strong>把不能随手改的 controller、入参出参、关键 SQL、状态映射列出来；每一项都要写清“为什么不能随便改、改之前谁确认、改后要补哪些回归”。</li>
+              <li><strong>AI 待确认问题单：</strong>把 AI 遇到但不能靠猜处理的问题单独记录；问题单里至少要有问题描述、影响链路、当前缺的依据、需要谁回答、回答前不能做什么。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top:18px;">
+          <div class="card">
+            <h3>“先问清再开写”具体要问什么</h3>
+            <ul class="clean">
+              <li><strong>第一类：</strong>字段含义要问清。比如 `price` 到底是含税还是不含税，`tax_amount` 是我们算还是通道算。</li>
+              <li><strong>第二类：</strong>失败前提要问清。比如税额 `0.00` 的企业票，后续红冲是否会卡在微信 `REVERSE_ACCEPTED` 或支付宝成品油异常票。</li>
+              <li><strong>第三类：</strong>渠道差异要问清。微信不能直接传单价，支付宝有金额传参和票面规则，这些不能靠 AI 猜。</li>
+              <li><strong>第四类：</strong>公式要问清。开票金额、税额、数量换算、精度和舍入规则，必须让产品给出详细公式。</li>
+              <li><strong>第五类：</strong>依赖前置条件要问清。比如换开和红冲依赖先有正式蓝票，这类链路前提必须在开发前就写明。</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>高风险字段和重点保护项，在中期就要定下来</h3>
+            <ul class="clean">
+              <li><strong>高风险字段表：</strong>每个字段至少写清字段名、业务含义、来源、去向、出错后果、确认依据。比如金额税额类字段可以写 `item_amount`、`item_amount_without_tax`、`item_tax_amount`、`item_unit_amount`、`quantity`；状态类字段可以写发票状态、红冲状态；开票种类字段要写清成品油、通用发票对应的差异参数和单位限制。</li>
+              <li><strong>重点保护项清单：</strong>每项至少写清所在位置、为什么不能随手改、改之前谁确认、改后补哪些回归。比如 controller 路径、入参出参、关键 SQL、状态映射、加密落库逻辑都要先列进去。</li>
+              <li><strong>这张表怎么用：</strong>开发和自测时先对照看哪些字段和代码不能猜、不能顺手改，避免到了测试阶段才发现一改就牵动整条链路。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top:18px;">
+          <div class="card">
+            <h3>AI 交付后，人要确认哪些东西</h3>
+            <ul class="clean">
+              <li><strong>看请求：</strong>最终发给微信、支付宝、直连平台的请求体是不是符合最新文档。</li>
+              <li><strong>看数据库：</strong>`t_invoice`、`t_invoice_item`、日志表里的关键字段有没有和请求体对上。</li>
+              <li><strong>看状态：</strong>蓝票、红冲、换开状态有没有卡死风险，比如一直停在 `REVERSE_ACCEPTED`。</li>
+              <li><strong>看失败分支：</strong>金额、税额、数量、商户归属错了时，系统能不能给出明确错误和证据。</li>
+              <li><strong>看改动边界：</strong>有没有顺手碰到 controller、入参出参、SQL、状态映射这些敏感点。</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>人自己也不清楚时怎么办</h3>
+            <ul class="clean">
+              <li>第一，不允许继续让 AI 按经验补全。</li>
+              <li>第二，把不清楚的问题直接列成“待确认问题单”。</li>
+              <li>第三，优先去查三类依据：官方接口文档、产品公式说明、历史真实日志。</li>
+              <li>第四，如果还是不清楚，就把它标成阻塞项，不允许进入正式开发。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">中期重点</div>
+          <div class="text">下次迭代不能再拿着一份粗需求直接开写，而是要先把字段什么意思、谁来算、失败会怎样、前置条件是什么全部问明白，再让 AI 开始干活。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>落地抓手：需求拆解单、开发前确认清单、高风险字段表、重点保护项清单</span>
+        <span>目标：把“开发后再澄清”改成“澄清后再开发”</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">长期方案</div>
+        <div class="page">13 / 17</div>
+      </div>
+      <div class="content">
+        <h2>长期收敛方案：把“系统自己闭不了环”的问题拆开补，而不是继续硬扛</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>长期执行表</h3>
+            <table class="table">
+              <thead><tr><th>项</th><th>内容</th></tr></thead>
+              <tbody>
+                <tr><td>周期</td><td>3 个月左右，目标是补“外部依赖闭环”</td></tr>
+                <tr><td>负责人</td><td>研发管理者牵头；产品、测试、开发共同维护；AI 作为执行体与知识沉淀辅助</td></tr>
+                <tr><td>现有资料</td><td>需求拆解单、失败案例库、高风险字段表、重点保护项清单、历史回放结果</td></tr>
+                <tr><td>产出结果</td><td>文档更新办法、失败案例沉淀办法、四层验证流程、关键决策记录办法，以及适用于新项目的开工基础包</td></tr>
+                <tr><td>关键动作</td><td>统一维护需求文档、接口文档、字段卡、公式卡；沉淀成功 / 失败 / 边界日志样本；建立 mock + 回放 + 验算 + 有限真实样本的四层验证；所有关键决策必须留档</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>长期产出到底是什么</h3>
+            <ul class="clean">
+              <li><strong>文档更新办法：</strong>规定需求文档、接口文档、字段卡、公式卡谁改、何时改、改完放哪里。</li>
+              <li><strong>失败案例沉淀办法：</strong>规定每次失败样本怎么保存、如何分类、谁来维护、以后怎么复用。</li>
+              <li><strong>四层验证流程：</strong>明确 mock、日志回放、字段验算、有限真实样本分别在什么阶段执行。</li>
+              <li><strong>关键决策记录办法：</strong>规定哪些改动必须记录原因、影响面、回归点，避免后面只剩聊天记录。</li>
+              <li><strong>开工基础包：</strong>作为新项目开工前必须准备齐的基础材料包，不齐就不开工。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top:18px;">
+          <div class="card">
+            <h3>下次新项目开发应该怎么做</h3>
+            <ul class="clean">
+              <li>新项目如果强依赖外部接口，立项阶段就必须标记为“外部依赖型项目”，不能按普通内部系统开发。</li>
+              <li>不允许先讲“纯 AI 开发”，必须先完成开工基础包：需求摘要、状态机、字段卡、公式卡、渠道差异表、失败样本清单、验收清单。</li>
+              <li>先做 1 条主链路闭环验证，再批量铺开功能，不要一上来铺满所有模块。</li>
+              <li>架构上优先拆出：渠道适配层、字段计算层、状态收敛层、日志回放层。</li>
+            </ul>
+            <div class="quote" style="margin-top:16px;">长期目标不是让这个项目少返工一次，而是以后遇到类似“伪中台 + 强外部依赖 + 财税规则”项目时，不再从零开始踩坑。</div>
+          </div>
+          <div class="card">
+            <h3>重点保护项怎么认定，如果必须改怎么办</h3>
+            <ul class="clean">
+              <li>重点保护项可以理解成：一改就可能影响外部契约、财税结果、核心状态机、安全边界的代码和配置。</li>
+              <li>例如 controller 路径、入参出参、关键 SQL、状态映射、签名链路；这些项先从接口层、数据库层、状态转换层三处梳理出来。</li>
+              <li>这些不是不能改，而是改之前必须先写清：为什么改、会影响什么、对应文档怎么改、回归怎么补、谁来确认。</li>
+              <li>改动后必须同步更新接口文档、字段卡、回归清单，并补至少 1 个成功、1 个失败、1 个边界样本，避免只改代码不补依据。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">长期重点</div>
+          <div class="text">长期目标不是让系统不依赖外部接口，而是让它即使依赖外部接口，也不至于每次出了问题都从黑盒开始猜。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>落地抓手：高风险字段识别、重点保护项变更规范、新项目开工基础包、架构拆层</span>
+        <span>目标：以后类似项目从一开始就按高风险模式治理</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">闭环建设</div>
+        <div class="page">14 / 17</div>
+      </div>
+      <div class="content">
+        <h2>“不能闭环”不是一句结论，而是有 5 个环节断了，要逐个补上</h2>
+        <div class="card">
+          <h3>闭环图</h3>
+          <div class="flow-grid">
+            <div class="flow-card"><strong>文档闭环</strong>需求文档、接口文档、字段卡、公式卡、渠道差异表说的是同一件事。</div>
+            <div class="flow-card"><strong>样本闭环</strong>成功、失败、边界日志都沉淀下来，不能只有成功样本。</div>
+            <div class="flow-card"><strong>验证闭环</strong>mock、日志回放、字段验算、有限真实样本四层一起兜底。</div>
+            <div class="flow-card"><strong>决策闭环</strong>每次修改为什么改、影响什么、怎么回归都留下记录。</div>
+            <div class="flow-card"><strong>新项目闭环</strong>新项目从开工基础包开始，不再从聊天和猜测开始。</div>
+            <div class="flow-card"><strong>结果</strong>问题能提前暴露、能复现、能回归、能复用，不再总是到测试阶段集中爆炸。</div>
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top:18px;">
+          <div class="card">
+            <h3>需求拆解单到底是什么</h3>
+            <ul class="clean">
+              <li>它不是一句概念，而是一张把产品需求拆成研发、AI、测试都能执行的结构化说明单。</li>
+              <li>至少包含 6 项：功能目标、前置条件、字段定义、计算公式、渠道差异、验收方式。</li>
+              <li>例如“开票金额怎么算、税额谁算、数量保留几位、微信和支付宝哪里不同、失败时预期状态是什么”都要写进去。</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>开工基础包要包含什么</h3>
+            <ul class="clean">
+              <li>需求摘要：这次到底要解决什么问题。</li>
+              <li>状态机：蓝票、红冲、换开的关键状态与跳转。</li>
+              <li>字段卡：关键字段含义、来源、去向、风险。</li>
+              <li>公式卡：金额、税额、数量、精度、舍入规则。</li>
+              <li>渠道差异表：微信和支付宝的字段差异、状态差异、校验差异。</li>
+              <li>失败样本清单 + 验收清单：已知异常和提测前必验项。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">这一页想说明的事</div>
+          <div class="text">所谓“补闭环”，就是把文档、样本、验证、决策、新项目入口这几个环节接起来。这样以后不管是本项目继续迭代，还是新项目立项，都不会再从一份粗需求直接冲进开发。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>落地抓手：闭环图、需求拆解单、开工基础包</span>
+        <span>目标：把“不能闭环”拆成可执行的建设项</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">渠道差异</div>
+        <div class="page">15 / 17</div>
+      </div>
+      <div class="content">
+        <h2>微信和支付宝不是同一套开票规则，AI 如果不先看清差异，就一定会在后面踩坑</h2>
+        <table class="table">
+          <thead>
+            <tr><th>维度</th><th>微信成品油</th><th>支付宝支付可开票</th><th>开发阶段必须提出的问题</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>接口结果</td><td>开票接口 `202 Accepted` 只代表受理，不代表开票成功。</td><td>创建申请成功返回 `invoice_apply_id`，后续仍要看状态流转。</td><td>AI 不能把“请求成功”当成“业务成功”。</td></tr>
+            <tr><td>单价</td><td>接口没有直接传单价字段，更多依赖总金额、数量、税率和票面规则。</td><td>可传 `item_unit_amount`，且是不含税单价；不传则平台自行计算。</td><td>页面展示单价和票面单价是否允许不一致，谁负责解释。</td></tr>
+            <tr><td>数量</td><td>`quantity` 单位是 `10^-8`，文档明确要求成品油数量传真实交易数据。</td><td>`item_num` 最多 13 位小数，成品油场景必传；不传则平台算并校验。</td><td>数量由谁算、保留几位、什么时候必须传真实值。</td></tr>
+            <tr><td>金额规则</td><td>以分为单位，更多强调总金额与发票行金额一致。</td><td>有专门金额计算文档：含税/不含税二选一、税额可传可不传、平台会做精度校验。</td><td>到底是我们算含税、不含税、税额，还是交给平台算。</td></tr>
+            <tr><td>精度风险</td><td>数量、总金额、税率组合后，错误可能延迟到红冲阶段才暴露。</td><td>明确校验：`|单价*数量-不含税金额|<=0.01`，`|不含税金额*税率-税额|<=0.06`。</td><td>精度、舍入、税额 0.00 时的后续影响必须开发前先确认。</td></tr>
+            <tr><td>红冲风险</td><td>可能出现一直 `REVERSE_ACCEPTED`，说明蓝票阶段的问题在红冲时才爆出来。</td><td>蓝票异常可能直接导致“成品油异常发票，暂无法红冲”。</td><td>红冲问题不能只看红票逻辑，必须反查原蓝票生成逻辑。</td></tr>
+          </tbody>
+        </table>
+        <div class="solution-box">
+          <div class="tag">直接要求</div>
+          <div class="text">以后遇到金额、税额、数量、红冲这类需求，AI 开发前必须先把“微信规则、支付宝规则、我们自己的计算规则”列成差异表，让产品和研发负责人确认后再开写。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>参考：微信成品油开票文档、支付宝开票申请文档、支付宝金额计算规则</span>
+        <span>目标：先看清渠道差异，再决定由谁计算、谁校验、谁兜底</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">测试差异</div>
+        <div class="page">16 / 17</div>
+      </div>
+      <div class="content">
+        <h2>为什么自测说“可提测”，品控一测却 Bug 爆发：两边验证的根本不是同一件事</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>差异根因</h3>
+            <ul class="clean">
+              <li><strong>自测偏成功路径：</strong>mock 主要返回成功，自测判断的是“流程能不能走通”。</li>
+              <li><strong>品控偏异常与回归：</strong>品控验证的是“异常能不能处理、改完会不会把别的链路打坏”。</li>
+              <li><strong>证据口径不同：</strong>自测更多看接口返回，品控会看页面、数据库、状态、票面结果是否一致。</li>
+              <li><strong>外部依赖差异：</strong>真正渠道返回的失败信息和 mock 成功返回之间差距太大。</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>品控反馈问题之后，应该怎么处理</h3>
+            <ul class="clean">
+              <li><strong>第一步：</strong>先归类，不直接修代码。归到字段契约、渠道差异、状态收敛、数据落库、页面展示五类之一。</li>
+              <li><strong>第二步：</strong>补证据。必须拉出请求报文、响应报文、数据库快照、页面结果四类证据。</li>
+              <li><strong>第三步：</strong>补样本。把这次问题沉淀成失败 mock、日志回放样例和回归用例。</li>
+              <li><strong>第四步：</strong>再修复。修完后至少跑“原问题回归 + 同链路相邻场景回归 + 边界回归”。</li>
+              <li><strong>第五步：</strong>更新文档和交接卡，避免下一轮再重复。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top:18px;">
+          <div class="card">
+            <h3>交接卡到底是什么</h3>
+            <ul class="clean">
+              <li>交接卡就是一页固定格式的小文档，不是复杂流程表。</li>
+              <li>最少写 6 项：问题现象、根因判断、影响链路、改动点、回归点、未确认风险。</li>
+              <li>一个 Bug 一张卡，放到固定目录或 blackboard 里。</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>怎么做到每次都自动执行这些动作</h3>
+            <ul class="clean">
+              <li>不能靠自觉，要并进缺陷处理流程：没有交接卡，就不能算修复完成。</li>
+              <li>缺陷流转时固定检查 4 个附件：请求响应、数据库结果、回归结果、交接卡。</li>
+              <li>这样品控一提 Bug，研发就自然进入“归类 → 补证据 → 补样本 → 修复 → 更新交接卡”的标准动作。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">直接改法</div>
+          <div class="text">把“自测通过”的定义从“成功路径走通”改成“成功、失败、边界、落库、票面一致性都验证通过”，这样自测与品控的结果差距才会收敛。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>落地抓手：统一提测定义、统一证据清单、统一问题归类、统一回归动作</span>
+        <span>目标：让品控发现的问题能快速转成可复现、可回归、可积累的资产</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="topbar">
+        <div class="eyebrow">整改总览</div>
+        <div class="page">17 / 17</div>
+      </div>
+      <div class="content">
+        <h2>整改收敛路线图：短期补失败场景，中期补边界与职责，长期补外部依赖闭环</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>三阶段推进总表</h3>
+            <table class="table">
+              <thead><tr><th>阶段</th><th>负责人</th><th>关键交付</th><th>判断标准</th></tr></thead>
+              <tbody>
+                <tr><td>短期</td><td>研发负责人 + 测试 + AI</td><td>失败样本库、异常 mock、组合传参文档、回放清单</td><td>能在内部稳定复现已知失败</td></tr>
+                <tr><td>中期</td><td>产品负责人 + 研发负责人</td><td>需求拆解单、开发前确认清单、高风险字段表、重点保护项清单</td><td>开发前就把边界和职责讲清</td></tr>
+                <tr><td>长期</td><td>研发管理者牵头，多角色共建</td><td>文档闭环、数据闭环、验证闭环、决策闭环、新项目开工基础包</td><td>类似项目可复用，不再从零踩坑</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>最终验收口径</h3>
+            <ul class="clean">
+              <li>短期看：第二轮修复数量、失败样本覆盖率、异常 mock 覆盖率。</li>
+              <li>中期看：开发前确认清单执行率、高风险字段表完整率、越权改动拦截率。</li>
+              <li>长期看：外部依赖闭环成熟度、知识沉淀率、类似项目复用率。</li>
+              <li>所有阶段共同看：每个 P0 修复是否留有请求报文、响应报文、数据库结果、接口回查四类证据。</li>
+            </ul>
+            <div class="quote" style="margin-top:16px;">这次复盘真正要解决的，不是某一个 Bug，而是“以后再做类似项目，不能再用不完整需求直接驱动纯 AI 开发”。</div>
+          </div>
+        </div>
+        <div class="solution-box">
+          <div class="tag">最终落点</div>
+          <div class="text">这份复盘最后要落到三件事：第一，短期把失败样本、异常 mock 和提测标准补起来，让问题先能复现；第二，中期把需求拆解单、开发前确认清单、高风险字段表和重点保护项规则立起来，让开发前就把边界讲清；第三，长期把开工基础包、闭环机制和新项目启动方式固定下来，让类似项目以后按同一套方法启动。这样问题会从“测试阶段集中爆发”，变成“开发阶段提前暴露、提前处理”。</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>复盘结论：这类项目必须先补设计与闭环，再谈 AI 提效，否则只会把问题从开发阶段推迟到测试阶段集中爆发</span>
+        <span>完</span>
+      </div>
+    </section>
+
+    <div class="progress"><span></span></div>
+  </div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    const progress = document.querySelector('.progress > span');
+    let index = 0;
+
+    function render() {
+      slides.forEach((slide, i) => slide.classList.toggle('active', i === index));
+      progress.style.width = `${((index + 1) / slides.length) * 100}%`;
+    }
+
+    function go(next) {
+      index = Math.max(0, Math.min(slides.length - 1, next));
+      render();
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
+        go(index + 1);
+      }
+      if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+        go(index - 1);
+      }
+      if (event.key === 'Home') {
+        go(0);
+      }
+      if (event.key === 'End') {
+        go(slides.length - 1);
+      }
+    });
+
+    slides.forEach((slide, i) => {
+      slide.addEventListener('click', (event) => {
+        if (window.innerWidth <= 1100) return;
+        const leftHalf = event.clientX < window.innerWidth * 0.4;
+        go(leftHalf ? i - 1 : i + 1);
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>
